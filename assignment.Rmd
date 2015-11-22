@@ -1,0 +1,96 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Dominic Tran"
+date: "21 November 2015"
+output:
+  html_document:
+    keep_md: true
+---
+## Synopsis
+This report details the model developed which predicts the manner in which barbell lifts were performed, using the [Weight Lifting Exercise Dataset](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises).  The training data are available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and the test data are available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+## Data
+```{r library, message=FALSE, warning=FALSE}
+library(caret)
+```
+
+Download the datasets and remove the first 7 columns: X, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window, num_window as data for these columns are not sensor measurements and are not used in the prediction model.
+
+```{r load_data, cache=TRUE}
+read.data <- function(data.file) {
+  data.read <- read.csv(data.file, na.strings = c("NA","#DIV/0!", ""), stringsAsFactors = FALSE) 
+  data.read[,-(1:7)]
+}
+
+train.read <- read.data("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+test.read <- read.data("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+Exploratory analysis on the data showed that there are lots of NAs.  The data is subset by discarding columns in which NAs fill up 95% or more.
+
+```{r prepare_data, cache=TRUE}
+# count number of NAs in each col
+na.counts <- apply(train.read, 2, function(x) sum(is.na(x)))
+
+# retain cols with less than 95% of NAs
+keep.cols <- which(na.counts < (nrow(train.read) * 0.95))
+keep.train.read <- train.read[, keep.cols]
+keep.test.read <- test.read[, keep.cols]
+```
+
+No near zero-variance predictors (using *{caret}*__nearZeroVar__) are found.  Only a small number of predictors with pairwise correlations greater than 0.90 (using *{caret}*__findCorrelation__) are found, so no further subsetting is performed.
+
+Twenty five percent of the training data is retained for cross-validation.
+
+```{r partition_data, cache=TRUE}
+set.seed(11)
+in.train <- createDataPartition(keep.train.read$classe, p = 3/4, list = FALSE)
+
+col.classe <- which(names(keep.train.read) == "classe")
+train.data <- keep.train.read[in.train, -col.classe]
+train.classe <- keep.train.read[in.train, col.classe]
+validate.data <- keep.train.read[-in.train, -col.classe]
+validate.classe <- keep.train.read[-in.train, col.classe]
+
+test.data <- keep.test.read[, -which(names(keep.test.read) == "problem_id")]
+```
+
+## Model
+As this is a classification problem, *Random Forest* was picked and fitted using *{caret}* default paramters.
+
+```{r fit_model, cache=TRUE, message=FALSE}
+model.fit <- train(x = train.data, y = train.classe, method = "rf")
+```
+
+```{r fit_model_print}
+model.fit$finalModel
+```
+
+As can be seen in the output above, the OOB estimate of error rate is 0.65%.
+
+```{r validate_model, cache=TRUE}
+pred.classe <- predict(model.fit, newdata = validate.data)
+confusionMatrix(validate.classe, pred.classe)
+```
+
+The estimated accuracy of the model is 99.39% (error rate is 0.61%).
+
+Finally, prediction is performed on test data as follows.
+
+```{r test_model, eval=FALSE}
+test.classe <- predict(model.fit, newdata = test.data)
+
+```
+
+```{r file_output, echo=FALSE}
+test.classe <- predict(model.fit, newdata = test.data)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(test.classe)
+```
